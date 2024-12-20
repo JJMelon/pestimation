@@ -1,0 +1,215 @@
+// $id$
+//  Copyright (C) 2008 Battelle Memorial Institute
+
+// 4 Node Feeder: Balanced step-down grY-grY
+
+/////////////////////////////////////////////
+// BEGIN
+/////////////////////////////////////////////
+
+
+
+clock {
+	timezone EST+8EDT;
+	timestamp '2000-01-01 0:00:00';
+	stoptime '2000-01-01 0:00:01';
+}
+
+module powerflow {
+    solver_method NR;
+};
+
+object overhead_line_conductor:100 {
+    geometric_mean_radius 0.0244;
+    resistance 0.306;
+    diameter 0.721;
+}
+
+object overhead_line_conductor:101 {
+    geometric_mean_radius 0.00814;
+    resistance 0.592;
+    diameter 0.563;
+}
+
+object line_spacing:200 {
+    distance_AB 2.5;
+    distance_BC 4.5;
+    distance_AC 7.0;
+    distance_AN 5.656854;
+    distance_BN 4.272002;
+    distance_CN 5.0;
+}
+
+object line_configuration:300 {
+    conductor_A overhead_line_conductor:100;
+    conductor_B overhead_line_conductor:100;
+    conductor_C overhead_line_conductor:100;
+    conductor_N overhead_line_conductor:101;
+    spacing line_spacing:200;
+}
+
+object transformer_configuration:400 {
+    connect_type 1;
+    power_rating 6000;
+    powerA_rating 2000;
+    powerB_rating 2000;
+    powerC_rating 2000;
+    primary_voltage 12470;
+    secondary_voltage 4160;
+    resistance 0.01;
+    reactance 0.06;
+}
+
+object node {
+    name node1;
+    phases "ABCN";
+    voltage_A +7199.558+0.000j;
+    voltage_B -3599.779-6235.000j;
+    voltage_C -3599.779+6235.000j;
+    nominal_voltage 7200;
+    bustype SWING;
+    // object recorder {
+    //     file node1_voltages.csv;
+    //     interval 60;
+    //     property voltage_A, voltage_B, voltage_C;
+    // };
+}
+
+object overhead_line:12 {
+    phases "ABCN";
+    from node1;
+    to node2;
+    length 2000;
+    configuration line_configuration:300;
+}
+
+object node {
+    name node2;
+    phases "ABCN";
+    voltage_A +7199.558+0.000j;
+    voltage_B -3599.779-6235.000j;
+    voltage_C -3599.779+6235.000j;
+    nominal_voltage 7200;
+    // object recorder {
+    //     file node2_voltages.csv;
+    //     interval 60;
+    //     property voltage_A, voltage_B, voltage_C;
+    // };
+}
+
+object transformer:23 {
+    phases "ABCN";
+    from node2;
+    to node3;
+    configuration transformer_configuration:400;
+}
+
+object node {
+    name node3;
+    phases "ABCN";
+    voltage_A +2401.777+0.000j;
+    voltage_B -1200.889-2080.000j;
+    voltage_C -1200.889+2080.000j;
+    nominal_voltage 2400;
+    // object recorder {
+    //     file node3_voltages.csv;
+    //     interval 60;
+    //     property voltage_A, voltage_B, voltage_C;
+    // };
+}
+
+object overhead_line:34 {
+    phases "ABCN";
+    from node3;
+    to node4;
+    length 2500;
+    configuration line_configuration:300;
+}
+
+object node {
+    name node4;
+    phases "ABCN";
+    voltage_A +2401.777+0.000j;
+    voltage_B -1200.889-2080.000j;
+    voltage_C -1200.889+2080.000j;
+    nominal_voltage 2400;
+}
+
+
+object transformer_configuration:500 { 
+     connect_type SINGLE_PHASE_CENTER_TAPPED; 
+     install_type PADMOUNT; 
+     primary_voltage 2400 V; 
+     secondary_voltage 120 V; 
+     power_rating 25.0; 
+     powerA_rating 25.0; 
+     resistance 0.00600; 
+     reactance 0.00400; 
+} 
+
+object transformer:45 { 
+     name Center_tap1; 
+     phases AS; 
+     from node4; 
+     to triplex_node5; 
+     configuration transformer_configuration:500; 
+} 
+
+
+object triplex_line_configuration:1 {
+	conductor_1 triplex_1/0 AA;
+	conductor_2 triplex_1/0 AA;
+	conductor_N triplex_1/0 AA;
+	insulation_thickness 0.08;
+	diameter 0.368;
+}
+
+object triplex_line_conductor: {
+	name triplex_1/0 AA;
+	resistance 0.97;
+	geometric_mean_radius 0.0111;
+}
+
+object triplex_node:5 {
+	name triplex_node5;
+	phases AS;
+	voltage_1 -60+103.92j;
+	voltage_2 -60+103.92j;
+	voltage_N 0;
+	nominal_voltage 120;
+}
+
+object triplex_line:56 {
+	name triplex_line56;
+	phases AS;
+	from triplex_node5;
+	to triplex_node6;
+	length 30;
+	configuration triplex_line_configuration:1;
+	}
+
+
+object triplex_node:6 {
+ 	name triplex_node6;
+ 	phases AS;
+	power_1 17510.810364+5512.8881j; 
+ 	voltage_1 -60+103.92j;
+ 	voltage_2 -60+103.92j;
+ 	voltage_N 0;
+ 	nominal_voltage 120;
+}
+
+
+///////////////////////////////
+// END
+///////////////////////////////
+
+
+object voltdump {
+     filename result.csv;
+     mode RECT;
+}
+
+object impedance_dump {
+	filename "impedance.xml";
+}

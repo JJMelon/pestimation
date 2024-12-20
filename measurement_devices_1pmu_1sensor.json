@@ -1,0 +1,61 @@
+[
+    {
+        "node_name": "node1",
+        "voltA_real": 7199.558,
+        "voltA_imag": -0.0,
+        "voltB_real": -3599.779,
+        "voltB_imag": -6235.0,
+        "voltC_real": -3599.779,
+        "voltC_imag": 6235.0,
+        "noise_std": 2,
+        "phases": [
+            "A",
+            "B",
+            "C"
+        ],
+        "device_type": "injection_pmu"
+    },
+    {
+        "name": "transformer:23",
+        "voltA_mag": 2247.42,
+        "voltB_mag": 2268.512,
+        "voltC_mag": 2255.86,
+        "P_A": -2004332.392,
+        "P_B": -1892969.985,
+        "P_C": -1944592.762,
+        "Q_A": -1214823.718,
+        "Q_B": -1123087.333,
+        "Q_C": -1186012.709,
+        "noise_std": 0,
+        "phases": [
+            "A",
+            "B",
+            "C"
+        ],
+        "device_type": "transformer_sensor"
+    },
+    {
+        "name": "load4",
+        "P": 1800000,
+        "Q": 871779.789,
+        "noise_std": 0,
+        "phase": "A",
+        "device_type": "ami"
+    },
+    {
+        "name": "load4",
+        "P": 1800000,
+        "Q": 871779.789,
+        "noise_std": 0,
+        "phase": "B",
+        "device_type": "ami"
+    },
+    {
+        "name": "load4",
+        "P": 1800000,
+        "Q": 871779.789,
+        "noise_std": 0,
+        "phase": "C",
+        "device_type": "ami"
+    }
+]

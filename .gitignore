@@ -1,0 +1,24 @@
+# Temporary files
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.tmp
+
+# Session files
+Session.vim
+
+# Tag files
+tags
+tags.*
+
+# Undofile (if enabled in Vim)
+*.un~
+
+# Temp files
+*~
+
+# Directory for Vim temporary files (if set in `.vimrc`)
+.vim/
+tmp/
