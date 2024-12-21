@@ -38,7 +38,7 @@ class ThreePhaseParser:
 
     def parse(self):
         self._bus_index = count(0)
-        
+
         self.ditto_store = Store()
         gld_reader = Reader(input_file = self.input_file_path)
 
@@ -51,7 +51,7 @@ class ThreePhaseParser:
         transformerhandler = TransformerParser(self)
 
         self.create_buses(network_model)
-        
+
         for model in self.ditto_store.models:
             if isinstance(model, ditto.models.powertransformer.PowerTransformer):
                 transformerhandler.create_transformer(model, network_model)
@@ -67,10 +67,10 @@ class ThreePhaseParser:
                 continue
             else:
                 raise Exception(f"Unknown model type {model}")
-        
+
         #print(network_model)
         return network_model
-    
+
     def ignoremodel(self, model):
         ignored_models = [
             ditto.models.winding.Winding,
@@ -109,7 +109,7 @@ class ThreePhaseParser:
                     ThreePhaseParser.bus2isTriplex[model.name] = 1
                 # Now go through all the phases of the node
                 for phase in model.phases:
-                    # Unclear of this comment 
+                    # Unclear of this comment
                     if phase in self._phase_to_angle:
                         # if the node has parent
                         if model.parent != None:
@@ -150,7 +150,7 @@ class ThreePhaseParser:
         bus = Bus(bus_id, 1, v_mag, v_ang, None, node_name, node_parent, node_phase, is_virtual)
         network_model.bus_name_map[node_name + "_" + node_phase] = bus
         network_model.buses.append(bus)
-        return bus            
+        return bus
 
     def create_load(self, model, network_model: DxNetworkModel):
         load_num = model.name.split("_")[-1]
@@ -177,7 +177,7 @@ class ThreePhaseParser:
             bus = network_model.bus_name_map[model._parent + "_" + phase]
         else:
             # Get relevant attributes, create and save an object
-            # Get the initial voltage values for this 
+            # Get the initial voltage values for this
             try:
                 v_complex = complex(getattr(self.all_gld_objects[model.name],'_voltage_' + phase))
             except Exception:
@@ -192,7 +192,7 @@ class ThreePhaseParser:
                         v_r = nominal_v * math.cos(v_angle)
                         v_i = nominal_v * math.sin(v_angle)
                         v_complex = complex(v_r,v_i)
-        
+
                         v_mag = abs(v_complex)
                         v_ang = cmath.phase(v_complex)
 
@@ -233,7 +233,7 @@ class ThreePhaseParser:
                     capacitor.switch = CapSwitchState[gld_cap._switchB]
                 elif phase_capacitor.phase == "C" and hasattr(gld_cap, "_switchC"):
                     capacitor.switch = CapSwitchState[gld_cap._switchC]
-            
+
             network_model.capacitors.append(capacitor)
 
     def create_regulator(self, model: ditto.models.regulator.Regulator, network_model: DxNetworkModel):
@@ -244,7 +244,7 @@ class ThreePhaseParser:
         if not (model.windings[0].connection_type == model.windings[1].connection_type == 'Y'):
             # gridlabD only supports a Wye-Wye connected regulator as of Jan 20 2022, so do we
             raise Exception("Only wye-wye currently supported")
-        
+
         reg_config = self.all_gld_objects[self.all_gld_objects[model.name]['configuration']]
 
         ar_step = (model.regulation * 2) / (model.highstep + model.lowstep)
@@ -273,12 +273,12 @@ class ThreePhaseParser:
             # current_bus = self.create_bus(network_model, 0.1, 0.1, f"{from_bus.NodeName}-Reg", None, winding.phase, True)
 
             regulator = Regulator(
-                from_bus, 
-                to_bus, 
-                # current_bus, 
-                tap_position, 
-                ar_step, 
-                reg_type, 
+                from_bus,
+                to_bus,
+                # current_bus,
+                tap_position,
+                ar_step,
+                reg_type,
                 reg_control,
                 vlow,
                 vhigh,
@@ -292,7 +292,7 @@ class ThreePhaseParser:
             #regulator.try_increment_tap_position(tap_guess)
 
             network_model.regulators.append(regulator)
-    
+
     def create_transmission_line(self, model: ditto.models.line.Line, network_model: DxNetworkModel):
         # Check for fuses, some are encoded as zero-length lines with no features
         if model.is_fuse:
@@ -312,7 +312,7 @@ class ThreePhaseParser:
                 fuse = Fuse(from_bus, to_bus, None, current_limit, fuse_status, wire.phase)
 
                 network_model.fuses.append(fuse)
-        
+
         # Check for switches, some are encoded as 1-length lines with no features
         elif model.is_switch:
             for wire in model.wires:
@@ -325,7 +325,7 @@ class ThreePhaseParser:
                 status = SwitchStatus[("OPEN" if (hasattr(wire, "is_open") and wire.is_open) else "CLOSED")]
 
                 switch = Switch(from_bus, to_bus, status, wire.phase)
-                
+
                 network_model.switches.append(switch)
         else:
             impedances = np.array(model.impedance_matrix)
@@ -353,7 +353,8 @@ class ThreePhaseParser:
             else:
                 phases = [wire.phase for wire in model.wires if wire.phase != 'N']
             ampacities = [wire.emergency_ampacity for wire in model.wires if hasattr(wire, "emergency_ampacity")] #  or wire.ampacity ; if hasattr(wire, "ampacity")
-            
-            transmission_line = UnbalancedLine(network_model, impedances, shunt_admittances, model.from_element, model.to_element, model.length, phases, ampacities)
+            default_line_name = model.from_element + ":" + model.to_element
+            line_name = getattr(model, "name", default_line_name)
+            transmission_line = UnbalancedLine(line_name, network_model, impedances, shunt_admittances, model.from_element, model.to_element, model.length, phases, ampacities)
             network_model.lines.append(transmission_line)
 

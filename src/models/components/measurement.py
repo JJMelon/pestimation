@@ -30,8 +30,8 @@ class InjectionPMU:
 
     # Assign bus voltage variables
     def assign_ipopt_vars(self, model):
-        self.ipopt_vr = model.ipopt_vr_list[self.bus_idx]
-        self.ipopt_vi = model.ipopt_vi_list[self.bus_idx]
+        self.ipopt_vr = model.ipopt_vr_list[self.bus.NodeFullName]
+        self.ipopt_vi = model.ipopt_vi_list[self.bus.NodeFullName]
 
     # Add KCL terms
     def add_to_eqn_list(self, KCL_equations_real, KCL_equations_imag):
@@ -103,10 +103,10 @@ class AMI():
 
     # Assign variables from load object and P, Q and error
     def assign_ipopt_vars(self, model):
-        self.vr = model.ipopt_vr_list[self.load.from_bus_idx]
-        self.vi = model.ipopt_vi_list[self.load.from_bus_idx]
-        self.P = model.load_p_list[self.load.id]
-        self.Q = model.load_q_list[self.load.id]
+        self.vr = model.ipopt_vr_list[self.load.from_bus.NodeFullName]
+        self.vi = model.ipopt_vi_list[self.load.from_bus.NodeFullName]
+        self.P = model.load_p_list[self.load.FullName]
+        self.Q = model.load_q_list[self.load.FullName]
         self.P_error = self.meas['P'] - self.P
         self.Q_error = self.meas['Q'] - self.Q
 
@@ -133,7 +133,7 @@ class AMI():
 class CableBox():
     _ids = count(0)
     def __init__(self, bus: Bus, Vmag: float, var: float):
-        self.bus_id = bus.int_bus_id
+        self.bus = bus
         self.id = self._ids.__next__()
         self.phase = bus.NodePhase
         self.Vmag = Vmag
@@ -141,8 +141,8 @@ class CableBox():
 
     # Assign bus voltage variables and error equations
     def assign_ipopt_vars(self, model):
-        self.ipopt_vr = model.ipopt_vr_list[self.bus_id]
-        self.ipopt_vi = model.ipopt_vi_list[self.bus_id]
+        self.ipopt_vr = model.ipopt_vr_list[self.bus.NodeFullName]
+        self.ipopt_vi = model.ipopt_vi_list[self.bus.NodeFullName]
         self.error = (self.Vmag)**2 - (self.ipopt_vr)**2 - (self.ipopt_vi)**2
 
 

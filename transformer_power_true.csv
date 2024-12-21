@@ -1,0 +1,4 @@
+transformer_name,P_A,Q_A,voltA_mag,P_B,Q_B,voltB_mag,P_C,Q_C,voltC_mag
+transformer:23:A,-2004338.059451,-1214829.473387,2247.420961
+transformer:23:B,-1892965.912878,-1123092.218779,2268.512023
+transformer:23:C,-1944592.006832,-1186014.680470,2255.865124

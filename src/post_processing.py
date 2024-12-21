@@ -23,15 +23,15 @@ def transformer_power_to_csv(model, network, filename = "transformer_power.csv")
         # TODO: handle all types of xfmr connection
         vr_sec_value = value(xfmr.vr_a)
         vi_sec_value = value(xfmr.vi_a)
-        if xfmr.FullName not in transformer_powers:
-            transformer_powers[xfmr.FullName] = {}
+        if xfmr.name not in transformer_powers:
+            transformer_powers[xfmr.name] = {}
 
         # Use phase info
         phase = get_transformer_phase(xfmr)
         P = ir_sec_value * vr_sec_value + ii_sec_value * vi_sec_value
         Q = ir_sec_value * vi_sec_value - ii_sec_value * vr_sec_value
         V = np.sqrt(vr_sec_value**2 + vi_sec_value**2)
-        transformer_powers[xfmr.FullName][phase] = (P, Q, V)
+        transformer_powers[xfmr.name][phase] = (P, Q, V)
 
     # Write the voltage profile to CSV
     with open(filename, mode='w', newline='') as file:
@@ -82,15 +82,16 @@ def load_power_to_csv(network, filename="load_profile.csv"):
 ########################### Estimated Parameters #########################
 # TODO: handle arbitrary parameters
 def save_param_estimates_to_csv(network, model, filename = "estimated_params.csv"):
-    estimate = value(model.estimated_params[0])
 
     # Write the voltage profile to CSV
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["param_name", "value"])
-        row = []
-        row.extend([f"G_self_1-2", f"{estimate:.6f}"])
-        writer.writerow(row)
+        for param_name in list(model.estimated_line_set):
+            estimate = value(model.estimated_line[param_name])
+            row = []
+            row.extend([f"{param_name}", f"{estimate:.6f}"])
+            writer.writerow(row)
 
     print(f"Voltage profile saved to {filename}.")
 

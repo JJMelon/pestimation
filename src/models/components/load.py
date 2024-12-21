@@ -51,6 +51,7 @@ class Load:
         self.load_num = load_num if load_num != None else str(self.id)
         self.triplex_phase = triplex_phase
         self.phase = phase
+        self.FullName = name + ":" + phase
         if triplex_phase:
             self.phase_int = int(phase)
         else:

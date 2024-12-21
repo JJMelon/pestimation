@@ -62,6 +62,7 @@ class UnbalancedLinePhase():
     def __init__(self,
                  from_element,
                  to_element,
+                 length,
                  phase,
                  phases,
                  admittances,
@@ -71,6 +72,7 @@ class UnbalancedLinePhase():
         self.from_element = from_element
         self.to_element = to_element
         self.phase = phase
+        self.length = length
         # Necessary for mutual
         self.network_model = network_model
         self.get_nodes(self.network_model)
@@ -78,9 +80,6 @@ class UnbalancedLinePhase():
         (from_bus, to_bus) = self.get_nodes(network_model)
         self.from_bus_idx = from_bus.int_bus_id
         self.to_bus_idx = to_bus.int_bus_id
-        #self.from_bus_idx = Bus.node2index_dict[(self.from_element, self.phase)]
-        #### trying a solution ####
-        #self.to_bus_idx = Bus.node2index_dict[(self.to_element, self.phase)]
 
         # Split into conductances and susceptances
         # make into a python list so we can change entries to pyomo variables in estimation
@@ -216,9 +215,9 @@ class UnbalancedLinePhase():
         # Get indices for mutual phases
         mutual_phase_indices = [phase_indices[p] for p in mutual_phases[self.phase] if p in self.phases]
 
-        # Self-admittances
-        self.Gself = self.conductances[phase_idx][phase_idx]
-        self.Bself = self.susceptances[phase_idx][phase_idx]
+        # Self-admittances calculated from admittance-meters / length
+        self.Gself = self.conductances[phase_idx][phase_idx] / self.length
+        self.Bself = self.susceptances[phase_idx][phase_idx] / self.length
 
         # Calculate the contribution of the self-admittance
         Ir_from = ((getattr(self, f"ip_vr_from{self.phase}") - getattr(self, f"ip_vr_to{self.phase}")) * self.Gself -
@@ -227,8 +226,8 @@ class UnbalancedLinePhase():
         # Add contributions from mutual admittances
         for i, mutual_idx in enumerate(mutual_phase_indices):
             mutual_phase = mutual_phases[self.phase][i]
-            Gmutual = self.conductances[phase_idx][mutual_idx]
-            Bmutual = self.susceptances[phase_idx][mutual_idx]
+            Gmutual = self.conductances[phase_idx][mutual_idx] / self.length
+            Bmutual = self.susceptances[phase_idx][mutual_idx] / self.length
 
             Ir_from += ((getattr(self, f"ip_vr_from{mutual_phase}") - getattr(self, f"ip_vr_to{mutual_phase}")) * Gmutual -
                         (getattr(self, f"ip_vi_from{mutual_phase}") - getattr(self, f"ip_vi_to{mutual_phase}")) * Bmutual)
@@ -247,8 +246,9 @@ class UnbalancedLinePhase():
             raise ValueError(f"Invalid phase: {self.phase}")
 
         # Extract self-conductance and self-susceptance
-        self.Gself = self.conductances[phase_idx][phase_idx]
-        self.Bself = self.susceptances[phase_idx][phase_idx]
+        # real admittances from admittance-meters
+        self.Gself = self.conductances[phase_idx][phase_idx] / self.length
+        self.Bself = self.susceptances[phase_idx][phase_idx] / self.length
 
         # Initialize current from self-conductance and self-susceptance
         Ii_from = (
@@ -259,8 +259,9 @@ class UnbalancedLinePhase():
         # Handle mutual phases dynamically based on available phases
         for mutual_phase, mutual_idx in phase_indices.items():
             if mutual_phase != self.phase and mutual_phase in self.phases:
-                Gmutual = self.conductances[phase_idx][mutual_idx]
-                Bmutual = self.susceptances[phase_idx][mutual_idx]
+                # real admittances from admittance-meters
+                Gmutual = self.conductances[phase_idx][mutual_idx] / self.length
+                Bmutual = self.susceptances[phase_idx][mutual_idx] / self.length
                 Ii_from += (
                     (getattr(self, f"ip_vi_from{mutual_phase}") - getattr(self, f"ip_vi_to{mutual_phase}")) * Gmutual +
                     (getattr(self, f"ip_vr_from{mutual_phase}") - getattr(self, f"ip_vr_to{mutual_phase}")) * Bmutual
@@ -271,176 +272,51 @@ class UnbalancedLinePhase():
         return Ii_from, Ii_to
 
     def calc_shunt_current(self):
-        Ir_sh_from = 0
-        Ii_sh_from = 0
-        Ir_sh_to = 0
-        Ii_sh_to = 0
+        def compute_shunt_current(B_shunt, vi_from, vr_from, vi_to, vr_to):
+            """Compute the real and imaginary components of the shunt current."""
+            Ir_from = -B_shunt * vi_from / 2
+            Ii_from = B_shunt * vr_from / 2
+            Ir_to = -B_shunt * vi_to / 2
+            Ii_to = B_shunt * vr_to / 2
+            return Ir_from, Ii_from, Ir_to, Ii_to
+
+        def add_mutual_shunt_current(Ir_sh, Ii_sh, mutual_index):
+            """Add mutual shunt currents if applicable."""
+            if hasattr(self, f'ip_vr_from{mutual_index}'):
+                B_shunt_mutual = self.shunt_admittances[phase_idx][mutual_index].imag * self.length
+                Ir_sh[0] += -B_shunt_mutual * getattr(self, f'ip_vi_from{mutual_index}') / 2
+                Ii_sh[0] += B_shunt_mutual * getattr(self, f'ip_vr_from{mutual_index}') / 2
+                Ir_sh[1] += -B_shunt_mutual * getattr(self, f'ip_vi_to{mutual_index}') / 2
+                Ii_sh[1] += B_shunt_mutual * getattr(self, f'ip_vr_to{mutual_index}') / 2
+
+        Ir_sh_from, Ii_sh_from, Ir_sh_to, Ii_sh_to = 0, 0, 0, 0
 
         if self.shunt_admittances is not None:
-            if "A" in self.phases and "B" in self.phases and "C" in self.phases:
-                # Case when all three phases are present
-                if self.phase == "A":
-                    B_shunt = self.shunt_admittances[0][0].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromA / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromA / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toA / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toA / 2
-                    if hasattr(self, 'ip_vr_fromB'):
-                        B_shunt_mutual = self.shunt_admittances[0][1].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromB / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromB / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toB / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toB / 2
-                    if hasattr(self, 'ip_vr_fromC'):
-                        B_shunt_mutual = self.shunt_admittances[0][2].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromC / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromC / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toC / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toC / 2
-                elif self.phase == "B":
-                    B_shunt = self.shunt_admittances[1][1].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromB / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromB / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toB / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toB / 2
-                    if hasattr(self, 'ip_vr_fromA'):
-                        B_shunt_mutual = self.shunt_admittances[1][0].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromA / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromA / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toA / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toA / 2
-                    if hasattr(self, 'ip_vr_fromC'):
-                        B_shunt_mutual = self.shunt_admittances[1][2].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromC / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromC / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toC / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toC / 2
-                elif self.phase == "C":
-                    B_shunt = self.shunt_admittances[2][2].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromC / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromC / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toC / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toC / 2
-                    if hasattr(self, 'ip_vr_fromA'):
-                        B_shunt_mutual = self.shunt_admittances[2][0].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromA / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromA / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toA / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toA / 2
-                    if hasattr(self, 'ip_vr_fromB'):
-                        B_shunt_mutual = self.shunt_admittances[2][1].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromB / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromB / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toB / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toB / 2
+            phase_indices = {'A': 0, 'B': 1, 'C': 2}
+            if self.phase in phase_indices:
+                phase_idx = phase_indices[self.phase]
+                B_shunt = self.shunt_admittances[phase_idx][phase_idx].imag * self.length
 
-            elif "A" in self.phases and "B" in self.phases and "C" not in self.phases:
-                # Case when only phases A and B are present
-                if self.phase == "A":
-                    B_shunt = self.shunt_admittances[0][0].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromA / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromA / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toA / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toA / 2
-                    if hasattr(self, 'ip_vr_fromB'):
-                        B_shunt_mutual = self.shunt_admittances[0][1].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromB / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromB / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toB / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toB / 2
-                elif self.phase == "B":
-                    B_shunt = self.shunt_admittances[1][1].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromB / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromB / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toB / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toB / 2
-                    if hasattr(self, 'ip_vr_fromA'):
-                        B_shunt_mutual = self.shunt_admittances[1][0].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromA / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromA / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toA / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toA / 2
+                # Compute self-admittance currents
+                Ir_from, Ii_from, Ir_to, Ii_to = compute_shunt_current(
+                    B_shunt,
+                    getattr(self, f'ip_vi_from{self.phase}'),
+                    getattr(self, f'ip_vr_from{self.phase}'),
+                    getattr(self, f'ip_vi_to{self.phase}'),
+                    getattr(self, f'ip_vr_to{self.phase}')
+                )
 
-            elif "B" in self.phases and "C" in self.phases and "A" not in self.phases:
-                # Case when only phases B and C are present
-                if self.phase == "B":
-                    B_shunt = self.shunt_admittances[0][0].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromB / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromB / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toB / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toB / 2
-                    if hasattr(self, 'ip_vr_fromC'):
-                        B_shunt_mutual = self.shunt_admittances[0][1].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromC / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromC / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toC / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toC / 2
-                elif self.phase == "C":
-                    B_shunt = self.shunt_admittances[1][1].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromC / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromC / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toC / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toC / 2
-                    if hasattr(self, 'ip_vr_fromB'):
-                        B_shunt_mutual = self.shunt_admittances[1][0].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromB / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromB / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toB / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toB / 2
+                Ir_sh_from += Ir_from
+                Ii_sh_from += Ii_from
+                Ir_sh_to += Ir_to
+                Ii_sh_to += Ii_to
 
-            elif "A" in self.phases and "C" in self.phases and "B" not in self.phases:
-                # Case when only phases A and C are present
-                if self.phase == "A":
-                    B_shunt = self.shunt_admittances[0][0].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromA / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromA / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toA / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toA / 2
-                    if hasattr(self, 'ip_vr_fromC'):
-                        B_shunt_mutual = self.shunt_admittances[0][1].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromC / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromC / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toC / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toC / 2
-                elif self.phase == "C":
-                    B_shunt = self.shunt_admittances[1][1].imag
-                    Ir_sh_from = -B_shunt * self.ip_vi_fromC / 2
-                    Ii_sh_from = B_shunt * self.ip_vr_fromC / 2
-                    Ir_sh_to = -B_shunt * self.ip_vi_toC / 2
-                    Ii_sh_to = B_shunt * self.ip_vr_toC / 2
-                    if hasattr(self, 'ip_vr_fromA'):
-                        B_shunt_mutual = self.shunt_admittances[1][0].imag
-                        Ir_sh_from += -B_shunt_mutual * self.ip_vi_fromA / 2
-                        Ii_sh_from += B_shunt_mutual * self.ip_vr_fromA / 2
-                        Ir_sh_to += -B_shunt_mutual * self.ip_vi_toA / 2
-                        Ii_sh_to += B_shunt_mutual * self.ip_vr_toA / 2
-
-            elif "A" in self.phases and "B" not in self.phases and "C" not in self.phases:
-                # Case when only phase A is present
-                B_shunt = self.shunt_admittances[0][0].imag
-                Ir_sh_from = -B_shunt * self.ip_vi_fromA / 2
-                Ii_sh_from = B_shunt * self.ip_vr_fromA / 2
-                Ir_sh_to = -B_shunt * self.ip_vi_toA / 2
-                Ii_sh_to = B_shunt * self.ip_vr_toA / 2
-
-            elif "B" in self.phases and "A" not in self.phases and "C" not in self.phases:
-                # Case when only phase B is present
-                B_shunt = self.shunt_admittances[0][0].imag
-                Ir_sh_from = -B_shunt * self.ip_vi_fromB / 2
-                Ii_sh_from = B_shunt * self.ip_vr_fromB / 2
-                Ir_sh_to = -B_shunt * self.ip_vi_toB / 2
-                Ii_sh_to = B_shunt * self.ip_vr_toB / 2
-
-            elif "C" in self.phases and "A" not in self.phases and "B" not in self.phases:
-                # Case when only phase C is present
-                B_shunt = self.shunt_admittances[0][0].imag
-                Ir_sh_from = -B_shunt * self.ip_vi_fromC / 2
-                Ii_sh_from = B_shunt * self.ip_vr_fromC / 2
-                Ir_sh_to = -B_shunt * self.ip_vi_toC / 2
-                Ii_sh_to = B_shunt * self.ip_vr_toC / 2
+                # Add mutual shunt currents
+                for mutual_phase, mutual_index in phase_indices.items():
+                    if mutual_phase != self.phase and mutual_phase in self.phases:
+                        add_mutual_shunt_current([Ir_sh_from, Ir_sh_to], [Ii_sh_from, Ii_sh_to], mutual_index)
 
         return Ir_sh_from, Ii_sh_from, Ir_sh_to, Ii_sh_to
-
 
 
     # ----------------------------------------------------------------------------------------------------------- #
@@ -539,6 +415,7 @@ class UnbalancedLinePhase():
 class UnbalancedLine():
 
     def __init__(self,
+                 name,
                  network_model,
                  impedances,
                  shunt_admittances,
@@ -549,14 +426,14 @@ class UnbalancedLine():
                  ampacities=[]):
         self.lines: typing.List[UnbalancedLinePhase]
         self.lines = []
+        self.name = name
 
         self.impedances = np.array(impedances)
+
+
         if not (self.impedances.shape == (3, 3) or self.impedances.shape == (2, 2) or self.impedances.shape == (1, 1)):
             raise Exception(
                 "incorrect impedances matrix size, expected a square matrix at most size 3 by 3")
-
-        # Convert the per-meter impedance values to absolute, based on line length (in meters)
-        self.impedances *= length
 
         try:
             self.admittances = calcInverse(self.impedances)
@@ -571,17 +448,14 @@ class UnbalancedLine():
         #    raise Exception(
         #        "np.linalg.inv was unable to find a good inverse to the impedance matrix")
 
-        # Convert the per-meter shunt admittance values to absolute, based on line length (in meters)
         if shunt_admittances is None:
             self.shunt_admittances = None
         elif np.count_nonzero(shunt_admittances) == 0:
             self.shunt_admittances = None
         else:
             self.shunt_admittances = np.array(shunt_admittances)
-            self.shunt_admittances *= length
             self.shunt_admittances = removeZeros(self.shunt_admittances)
 
-        # print("Line", from_element, to_element, "impedances", self.impedances, "admittances", self.admittances, "shunt admittances", self.shunt_admittances)
         self.from_element = from_element
         self.to_element = to_element
         self.length = length
@@ -589,22 +463,17 @@ class UnbalancedLine():
         self.ampacities = ampacities
         self.phases = phases
 
-        # print("Line", from_element, to_element, "impedances", self.impedances, "admittances", self.admittances, "shunt admittances", self.shunt_admittances)
-
-        # TODO: This already creates all the lines you need to worry about.
-        # for phase in phases:
-        #    self.lines.append(UnbalancedLinePhase(self.from_element, self.to_element, phase, phases))
         for phase in phases:
             line_phase = UnbalancedLinePhase(
                 self.from_element,
                 self.to_element,
+                length,
                 phase,
                 phases,
                 self.admittances,
                 self.shunt_admittances,
                 self.network_model)
             self.lines.append(line_phase)
-            # print(f"Phase {phase} is connected from {line_phase.from_element} to {line_phase.to_element}")
 
     def get_connections(self):
         for line in self.lines:

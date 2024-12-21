@@ -6,14 +6,12 @@ import subprocess
 import pickle
 
 # Generate measurement files with added noise
-def generate_noisy_measurements(true_voltages_csv, loads_csv, true_transformer_data_csv, output_folder, N, std_values):
+def generate_noisy_measurements(true_voltages_csv, loads_csv, true_transformer_data_csv, output_folder, K, std_values):
     # Get true values from previous powerflow solution
     true_voltages = pd.read_csv(true_voltages_csv)
     load_data = pd.read_csv(loads_csv)
     true_transformer_data = pd.read_csv(true_transformer_data_csv)
     phases = ["A", "B", "C"]
-    # Number of Realizations for each noise distribution
-    K = 100
     pmu_buses = ['node1']
     transformer_sensors = ['transformer:23']
     ami_loads = ['load4']
@@ -128,12 +126,13 @@ def run_and_evaluate(files_dict, true_csv, output_folder):
 
     # run for each realization of each value of error standard deviation
     for error, file_names in files_dict.items():
-        nmae_vals = np.zeros(len(file_names))
-        nae_param_vals = np.zeros(len(file_names))
+        nmae_state_vals = np.zeros(len(file_names))
+        nmae_param_vals = np.zeros(len(file_names))
+
         for i, json_file in enumerate(file_names):
             print(f"Parameter Estimation for {json_file} running...", flush=True)
             subprocess.run(
-                    ["python", "Combined-txd/src/main.py", "-estimate", f"-measurements={json_file}"],
+                    ["python", "src/main.py", "-estimate", f"-measurements={json_file}"],
                     stdout=subprocess.PIPE,    # Suppress standard output
                     stderr=subprocess.PIPE     # Suppress error output)
                     )
@@ -153,31 +152,37 @@ def run_and_evaluate(files_dict, true_csv, output_folder):
             estimated_params = estimated_params.apply(pd.to_numeric, errors='coerce')
 
             column = "voltA_real" # column we will calculate error in
-            abs_error = (true_data[column] - estimated_data[column]).abs()
+            abs_state_error = (true_data[column] - estimated_data[column]).abs()
             abs_param_error = (true_params["value"] - estimated_params["value"]).abs()
 
-            # Normalize parameter estimation error
-            nae_param = abs_param_error / abs(true_params['value'])
-            #TODO: Only compare values we are estimating
-
             # Find the maximum absolute error and its index
-            max_error = abs_error.max()
-            max_error_index = abs_error.idxmax()
+            max_state_error = abs_state_error.max()
+            max_state_error_index = abs_state_error.idxmax()
 
             # Normalize the maximum error by the true value at the index where max error occurs
-            if true_data[column][max_error_index] != 0:
-                nmae = max_error / abs(true_data[column][max_error_index])
+            if true_data[column][max_state_error_index] != 0:
+                nmae_state = max_state_error / abs(true_data[column][max_state_error_index])
             else:
-                nmae = float("inf")  # Handle division by zero if the true value is zero
+                nmae_state = float("inf")  # Handle division by zero if the true value is zero
 
-            nmae_vals[i] = nmae * 100
-            nae_param_vals[i] = nae_param[0] * 100
+            # Find the maximum absolute parameter error and its index
+            max_param_error = abs_param_error.max()
+            max_param_error_index = abs_param_error.idxmax()
+
+            # Normalize the maximum error by the true value at the index where max error occurs
+            if true_data[column][max_param_error_index] != 0:
+                nmae_param = max_param_error / abs(true_data[column][max_param_error_index])
+            else:
+                nmae_param = float("inf")  # Handle division by zero if the true value is zero
+
+            nmae_state_vals[i] = nmae_state * 100
+            nmae_param_vals[i] = nmae_param * 100
 
         # Results are in % units
         error_results.append({
             "std": error * 100,
-            "nmae_voltA_real": nmae_vals,
-            "nae_G_self_1-2": nae_param_vals
+            "nmae_voltA_real": nmae_state_vals,
+            "nae_line_length": nmae_param_vals
         })
 
     return error_results
@@ -188,15 +193,15 @@ def different_noise_std_test() -> list:
     voltages = 'voltage_profile_true.csv'
     loads = 'load_profile_true.csv'
     transformer_data = 'transformer_power_true.csv'
-    output_folder = 'Combined-txd/output'
-    N = 5  # Number of different values for std
+    output_folder = 'output'
+    K = 5  # Number of realizations per noise distribution
 
     std_values = np.array([0, 0.001, 0.002, 0.003, 0.004, 0.005])  # Generate values of standard deviation
 
     os.makedirs(output_folder, exist_ok=True)
 
     # Generate JSON files with noise
-    json_files = generate_noisy_measurements(voltages, loads, transformer_data, output_folder, N, std_values)
+    json_files = generate_noisy_measurements(voltages, loads, transformer_data, output_folder, K, std_values)
 
     # Run state estimation and evaluate NMAE
     nmae_results = run_and_evaluate(json_files, voltages, output_folder)
@@ -208,7 +213,7 @@ def different_noise_std_test() -> list:
 def test_transformer_sensor():
     true_values_file = 'voltage_profile_true.csv'  # Path to input CSV file used to generate
     output_folder = 'output'  # Folder for output JSON files and voltage profiles
-    measurement_file = 'Combined-txd/measurement_devices_1pmu_1sensor_3ami.json'
+    measurement_file = 'measurement_devices_1pmu_1sensor_3ami.json'
 
     # Run main.py and evalute NMSE
     nmse = run_and_evaluate([measurement_file], true_values_file, output_folder)

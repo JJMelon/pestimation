@@ -32,6 +32,7 @@ class NetworkModel():
         self.switches = []
         self.lines: List
         self.lines = []
+        self.lines_dict = {}
 
         #Holding area for any other models that don't have a dedicated list.
         self.misc: List

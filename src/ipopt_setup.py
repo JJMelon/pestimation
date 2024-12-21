@@ -3,6 +3,7 @@ from models.components import slack
 from models.components import transformer
 from models.components import bus
 from pyomo.environ import Constraint
+from logic.parametersetup import *
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -156,21 +157,21 @@ def ipopt_setup(network, settings, input_file):
     model.switch_ii_list = Var(range(num_switch))
 
     # AMI P, Q measurement variables
+    # Create list of load names
+    load_names = [load.FullName for load in network.loads]
+    model.load_names_set = Set(initialize=load_names)
     if settings.estimation:
-        model.load_p_list = Var(range(num_load))
-        model.load_q_list = Var(range(num_load))
+        model.load_p_list = Var(model.load_names_set)
+        model.load_q_list = Var(model.load_names_set)
 
     # Parameters to Estimate
     if settings.estimation:
-        max_cond_value = 1e3 # maximum reasonable conductance value -> bound feasible space
-        model.estimated_param_set = Set(initialize=estimated_param_names)
-        model.estimated_param = Var(model.estimated_param_set, bounds=(0,max_cond_value))
-        # self conductance on phase A from n1 to n2
-        network.lines[0].lines[0].conductances[0][0] = model.estimated_params[0]
-        # self conductance on phase B from n1 to n2
-        network.lines[0].lines[0].conductances[1][1] = model.estimated_params[0]
-        # self conductance on phase C from n1 to n2
-        network.lines[0].lines[0].conductances[2][2] = model.estimated_params[0]
+        estimated_line_names = ['overhead_line:12', 'overhead_line:34']
+        max_line_length = 1e4 # maximum reasonable line length (m) -> bound feasible space
+        model.estimated_line_set = Set(initialize=estimated_line_names)
+        model.estimated_line = Var(model.estimated_line_set, bounds=(0,max_line_length))
+        setup_lines_dict(network)
+        assign_line_params(network, model)
 
     # Infeasibility current L2
     if settings.infeasibility_analysis:
@@ -183,35 +184,6 @@ def ipopt_setup(network, settings, input_file):
                 model.pos_infeasi_ii_list = Var(range(num_infeasible), within=NonNegativeReals)
                 model.neg_infeasi_ii_list = Var(range(num_infeasible), within=NonNegativeReals)
 
-#################################### Initializing ############################
-    #for i in range(num_buses):
-    #    model.ipopt_vr_list[i].value = 3200
-    #    model.ipopt_vi_list[i].value = -100
-    #for i in range(num_normal_transformers):
-    #    model.xfmr_vr_aux_list[i].value = 2200
-    #    model.xfmr_vi_aux_list[i].value = -100
-    #    model.xfmr_ir_pri_list[i].value = 10
-    #    model.xfmr_ii_pri_list[i].value = 10
-    #    model.xfmr_ir_sec_list[i].value = 10
-    #    model.xfmr_ii_sec_list[i].value = 10
-    #for i in range(num_slack):
-    #    model.slack_vr_list[i].value = 10
-    #    model.slack_vi_list[i].value = -10
-    #for i in range (num_CT):
-    #    model.CT_ir_pri_list[i].value =  10
-    #    model.CT_ii_pri_list[i].value = 10
-    #    model.CT_ir_sec1_list[i].value = 10
-    #    model.CT_ii_sec1_list[i].value = 10
-    #    model.CT_ir_sec2_list[i].value = 10
-    #    model.CT_ii_sec2_list[i].value = 10
-    #for i in range(num_regulator):
-    #    model.reg_vr_aux_list[i].value = 2200
-    #    model.reg_vi_aux_list[i].value = -100
-    #    model.reg_ir_pri_list[i].value = 10
-    #    model.reg_ii_pri_list[i].value = 10
-
-    #for i in range(num_params):
-    #    model.estimated_params[i].value = 1
 
 ################################## Constraint ##############################
     model.cons = ConstraintList()
